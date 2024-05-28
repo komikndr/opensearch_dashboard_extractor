@@ -3,6 +3,7 @@ import requests
 import json
 import warnings
 import re
+import sys
 
 from requests.auth import HTTPBasicAuth
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
@@ -102,33 +103,40 @@ def main(args):
         raise ValueError("Invalid URL format: Missing protocol (HTTP/HTTPS)")
     
     saved_objects_api_url = f'{kibana_url}/api/saved_objects'
-    auth = HTTPBasicAuth(args.username, args.password)
+    
+    try:
+        auth = HTTPBasicAuth(args.username, args.password)
+    except TypeError:
+        print("Warning: Authentication credentials not provided. Some features may not be accessible.", file=sys.stderr)
+        auth = None
+    
     headers = {
         'osd-xsrf': 'osd-fetch',
         'Content-Type': 'application/json'
     }
     
-    dashboard_url = args.url
-    visualization_index_pattern_mapping = get_visualization_index_pattern_mapping(saved_objects_api_url, dashboard_url, auth, headers)
-    
-    request_bodies = []
-    
-    for visualization_id, index_pattern_id in visualization_index_pattern_mapping.items():
-        vis_url = f'{saved_objects_api_url}/visualization/{visualization_id}'
-        vis_object = get_kibana_saved_object(vis_url, auth, headers)
-        search_source_json, vis_state = parse_kibana_saved_object(vis_object)
-        index_name = get_index_name_from_index_pattern(saved_objects_api_url, index_pattern_id, auth, headers)
-        request_body = generate_request_body(index_name, search_source_json, vis_state)
-        vis_title = vis_object['attributes']['title']
-        request_bodies.append({"title": vis_title, "response_body": request_body})
-    
-    json_output = json.dumps(request_bodies, indent=2)
-    
-    if args.output:
-        with open(args.output, 'w') as f:
-            f.write(json_output)
-    else:
-        print(json_output)
+    if auth:
+        dashboard_url = args.url
+        visualization_index_pattern_mapping = get_visualization_index_pattern_mapping(saved_objects_api_url, dashboard_url, auth, headers)
+        
+        request_bodies = []
+        
+        for visualization_id, index_pattern_id in visualization_index_pattern_mapping.items():
+            vis_url = f'{saved_objects_api_url}/visualization/{visualization_id}'
+            vis_object = get_kibana_saved_object(vis_url, auth, headers)
+            search_source_json, vis_state = parse_kibana_saved_object(vis_object)
+            index_name = get_index_name_from_index_pattern(saved_objects_api_url, index_pattern_id, auth, headers)
+            request_body = generate_request_body(index_name, search_source_json, vis_state)
+            vis_title = vis_object['attributes']['title']
+            request_bodies.append({"title": vis_title, "response_body": request_body})
+        
+        json_output = json.dumps(request_bodies, indent=2)
+        
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(json_output)
+        else:
+            print(json_output)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract and dump JSON file of Kibana/OpenDashboard")
@@ -139,7 +147,4 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    if not (args.username and args.password):
-        parser.error("Username and password are required.")
-
     main(args)
